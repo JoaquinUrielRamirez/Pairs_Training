@@ -86,6 +86,7 @@ def visualizar_senales(mu, señales):
 def ajustar_estrategia_balanceada(mu, hedge_ratio, std_threshold=1.5):
     """
     Ajusta la estrategia de trading para balancear mejor las posiciones long y short.
+    Incluye la regla de que cuando se compra un activo, se vende el otro y viceversa.
 
     Parámetros:
     - mu: DataFrame con el término de corrección de error.
@@ -105,11 +106,17 @@ def ajustar_estrategia_balanceada(mu, hedge_ratio, std_threshold=1.5):
     # Seleccionar la primera columna de mu si tiene múltiples columnas
     mu_selected = mu.iloc[:, 0] if isinstance(mu, pd.DataFrame) else mu
 
-    señales['Long'] = (mu_selected < lower_bound.iloc[0]).astype(int)
-    señales['Short'] = (mu_selected > upper_bound.iloc[0]).astype(int)
+    señales['Long_Activo1'] = (mu_selected < lower_bound.iloc[0]).astype(int)
+    señales['Short_Activo1'] = (mu_selected > upper_bound.iloc[0]).astype(int)
+
+    # Aplicar la regla de arbitraje: cuando se compra un activo, se vende el otro
+    señales['Long_Activo2'] = señales['Short_Activo1']
+    señales['Short_Activo2'] = señales['Long_Activo1']
 
     # Ajustar posiciones balanceadas usando el hedge ratio
-    señales['Long_Size'] = señales['Long'] * hedge_ratio
-    señales['Short_Size'] = señales['Short'] * hedge_ratio
+    señales['Long_Size_Activo1'] = señales['Long_Activo1'] * hedge_ratio
+    señales['Short_Size_Activo1'] = señales['Short_Activo1'] * hedge_ratio
+    señales['Long_Size_Activo2'] = señales['Long_Activo2'] * hedge_ratio
+    señales['Short_Size_Activo2'] = señales['Short_Activo2'] * hedge_ratio
 
     return señales

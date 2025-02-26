@@ -140,6 +140,42 @@ def aplicar_filtro_kalman_reg(series):
     return hedge_ratio_series
 
 
+def visualizar_trading_signals(data, señales, activos):
+    """
+    Genera un gráfico con los precios de ambos activos y las señales de compra/venta.
+
+    Parámetros:
+    - data: DataFrame con los precios de los activos.
+    - señales: DataFrame con señales de trading (Long/Short).
+    - activos: Lista con los nombres de los dos activos.
+    """
+    plt.figure(figsize=(12, 6))
+    plt.plot(data.index, data[activos[0]], label=activos[0], color='blue')
+    plt.plot(data.index, data[activos[1]], label=activos[1], color='orange')
+
+    # Marcar señales de compra y venta
+    # Filtrar señales válidas (las que existen en data)
+    long_signals_1 = señales[señales['Long_Activo1'] == 1].index
+    short_signals_1 = señales[señales['Short_Activo1'] == 1].index
+    long_signals_2 = señales[señales['Long_Activo2'] == 1].index
+    short_signals_2 = señales[señales['Short_Activo2'] == 1].index
+
+    plt.scatter(long_signals_1, data.loc[long_signals_1, activos[0]],
+                color='green', marker='^', label=f'Compra {activos[0]}', alpha=1)
+    plt.scatter(short_signals_1, data.loc[short_signals_1, activos[0]],
+                color='red', marker='v', label=f'Venta {activos[0]}', alpha=1)
+    plt.scatter(long_signals_2, data.loc[long_signals_2, activos[1]],
+                color='blue', marker='^', label=f'Compra {activos[1]}', alpha=1)
+    plt.scatter(short_signals_2, data.loc[short_signals_2, activos[1]],
+                color='orange', marker='v', label=f'Venta {activos[1]}', alpha=1)
+
+    plt.xlabel('Fecha')
+    plt.ylabel('Precio')
+    plt.title('Señales de Trading sobre los Precios de los Activos')
+    plt.legend()
+    plt.grid()
+    plt.show()
+
 def backtest_estrategia_balanceada(data, señales, hedge_ratio, capital_inicial=1_000_000, comision=0.00125):
     """
     Realiza un backtest de la estrategia considerando margen, comisiones y capital inicial.
