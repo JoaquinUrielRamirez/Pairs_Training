@@ -3,8 +3,12 @@ import matplotlib.pyplot as plt
 from kalman_ import KalmanFilterReg
 import pandas as pd
 import yfinance as yf
-from stationarity import check_stationarity
+from se_trading import generar_senales_trading
+from se_trading import backtest_estrategia
+from se_trading import visualizar_senales
 from cointegration import analizar_cointegracion
+from cointegration import prueba_cointegracion_johansen
+from cointegration import entrenar_vecm
 
 # Sectores
 comodities = ['CL=F', 'GC=F', 'SI=F']
@@ -29,12 +33,12 @@ data = yf.download(tickers, start=star_due)["Open"]
 data = pd.DataFrame(data)
 data = (data - data.mean()) / data.std()
 
-activos = ['AMZN', 'MELI']
+activos = ['CVX', 'VLO']
 resultados = analizar_cointegracion(data, activos)
 print(resultados)
 
 cor = data.corr()
-print(cor['AMZN']['MELI'])
+print(cor['CVX']['VLO'])
 
 plt.figure()
 plt.grid()
@@ -45,6 +49,22 @@ plt.plot(data.index, data[activos[0]], label=activos[0])
 plt.plot(data.index, data[activos[1]], label=activos[1])
 plt.legend()
 plt.show()
+
+df = data[activos]
+
+c_johansen = prueba_cointegracion_johansen(df, activos)
+print(c_johansen)
+
+c_vecm, mu = entrenar_vecm(df, activos)
+print(c_vecm)
+
+sena_tra = generar_senales_trading(mu)
+print(sena_tra)
+
+ba_test = backtest_estrategia(mu)
+print(ba_test)
+
+che = visualizar_senales(mu, sena_tra)
 
 if __name__ == '__main__':
     print('PyCharm')
