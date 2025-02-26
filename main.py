@@ -3,69 +3,60 @@ import matplotlib.pyplot as plt
 from kalman_ import KalmanFilterReg
 import pandas as pd
 import yfinance as yf
-from se_trading import generar_senales_trading
-from se_trading import backtest_estrategia
-from se_trading import visualizar_senales
-from cointegration import analizar_cointegracion
-from cointegration import prueba_cointegracion_johansen
-from cointegration import entrenar_vecm
+from se_trading import generar_senales_trading, ajustar_estrategia_balanceada, visualizar_senales
+from cointegration import analizar_cointegracion, prueba_cointegracion_johansen, entrenar_vecm, aplicar_filtro_kalman_reg, backtest_estrategia_balanceada
 
-# Sectores
-comodities = ['CL=F', 'GC=F', 'SI=F']
-indices = ["^GSPC", "NDAQ"]
-tecnologicas = ["MSFT", "TSLA", "DIS", "GOOGL", "META", 'NVDA', 'PANW', 'TTWO', 'AVGO', 'BRK-B']
-software = ['INTC', 'QCOM', 'ORCL', 'IBM']
-entretenimiento = ['DIS', 'AMZN', "NFLX", 'WBD', 'CMCSA']
-mobilidad = ['GM', 'F', 'TSLA', 'TM', 'NSANY']
-armamentos = ['BA', 'OSK', 'RTX', 'BAESY', 'LMT', 'ITA']
-construccion = ['TEX']
-servicios = ['MELI', 'AMZN']
-supermercados = ['WMT', 'COST']
-farmaceuticas = ['LLY', 'PFE', 'JNJ']
-aerolineas = ['AAL', 'UAL']
-petroleras = ['CVX', 'VLO', 'SHEL']
-tipo_de_cambio = ['MXN=X', 'EURUSD=X', 'GBPUSD=X']
+tickers = ['CVX', 'VLO']
+start_date = "2015-08-22"
 
-tickers = comodities + indices + software + tecnologicas + entretenimiento + mobilidad + armamentos + construccion + servicios + supermercados + farmaceuticas + aerolineas + petroleras + tipo_de_cambio
-star_due = "2015-08-22"
-
-data = yf.download(tickers, start=star_due)["Open"]
+data = yf.download(tickers, start=start_date)["Open"]
 data = pd.DataFrame(data)
-data = (data - data.mean()) / data.std()
 
-activos = ['CVX', 'VLO']
-resultados = analizar_cointegracion(data, activos)
+# ✅ 2. Verificar cointegración y correlación
+resultados = analizar_cointegracion(data, tickers)
 print(resultados)
 
 cor = data.corr()
-print(cor['CVX']['VLO'])
-
-plt.figure()
-plt.grid()
-plt.xlabel("Fecha")
-plt.ylabel("Precio")
-plt.title("Evolución de los Activos")
-plt.plot(data.index, data[activos[0]], label=activos[0])
-plt.plot(data.index, data[activos[1]], label=activos[1])
-plt.legend()
-plt.show()
-
-df = data[activos]
-
-c_johansen = prueba_cointegracion_johansen(df, activos)
+print(f"Correlación entre {tickers[0]} y {tickers[1]}:", cor[tickers[0]][tickers[1]])
+c_johansen = prueba_cointegracion_johansen(data, tickers)
 print(c_johansen)
 
-c_vecm, mu = entrenar_vecm(df, activos)
-print(c_vecm)
-
+# ✅ 4. Aplicar VECM y generar señales de trading
+c_vecm, mu = entrenar_vecm(data, tickers)
 sena_tra = generar_senales_trading(mu)
-print(sena_tra)
 
-ba_test = backtest_estrategia(mu)
-print(ba_test)
+# ✅ 5. Visualizar señales
+visualizar_senales(mu, sena_tra)
 
-che = visualizar_senales(mu, sena_tra)
+# ✅ 6. Aplicar Filtro de Kalman (Corrigiendo el tamaño)
+hedge_ratio_kalman = aplicar_filtro_kalman_reg(data)
+
+# Asegurar que el hedge ratio tiene el mismo tamaño que data
+hedge_ratio_kalman = hedge_ratio_kalman.reindex(data.index, method='ffill')
+
+# ✅ 7. Ajustar estrategia balanceada con Hedge Ratio corregido
+estr_bal = ajustar_estrategia_balanceada(sena_tra, hedge_ratio_kalman)
+visualizar_senales(mu, estr_bal)
+
+# ✅ 8. Verificación de tamaños antes del backtest
+print(f"Tamaño de data: {len(data)}")
+print(f"Tamaño de hedge_ratio: {len(hedge_ratio_kalman)}")
+print(f"Tamaño de señales: {len(estr_bal)}")
+
+# ✅ 9. Ejecutar Backtest (Activar cuando todo esté corregido)
+resultado_backtest = backtest_estrategia_balanceada(data, estr_bal, hedge_ratio_kalman)
+print(resultado_backtest)
+
+# ✅ 10. Visualizar evolución del capital en el backtest
+plt.figure(figsize=(12, 6))
+plt.plot(resultado_backtest['Capital'], label='Capital Acumulado', color='blue')
+plt.axhline(1_000_000, color='red', linestyle='dashed', label='Capital Inicial')
+plt.xlabel('Fecha')
+plt.ylabel('Capital ($)')
+plt.title('Evolución del Capital en el Backtest')
+plt.legend()
+plt.grid()
+plt.show()
 
 if __name__ == '__main__':
     print('PyCharm')
-

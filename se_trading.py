@@ -81,3 +81,35 @@ def visualizar_senales(mu, señales):
     plt.title('Señales de Trading basadas en VECM')
     plt.grid()
     plt.show()
+
+
+def ajustar_estrategia_balanceada(mu, hedge_ratio, std_threshold=1.5):
+    """
+    Ajusta la estrategia de trading para balancear mejor las posiciones long y short.
+
+    Parámetros:
+    - mu: DataFrame con el término de corrección de error.
+    - hedge_ratio: Serie con el hedge ratio dinámico.
+    - std_threshold: Umbral en desviaciones estándar para generar señales.
+
+    Retorna:
+    - DataFrame con señales de trading balanceadas.
+    """
+    mu_mean = mu.mean()
+    mu_std = mu.std()
+    upper_bound = mu_mean + std_threshold * mu_std
+    lower_bound = mu_mean - std_threshold * mu_std
+
+    señales = pd.DataFrame(index=mu.index)
+
+    # Seleccionar la primera columna de mu si tiene múltiples columnas
+    mu_selected = mu.iloc[:, 0] if isinstance(mu, pd.DataFrame) else mu
+
+    señales['Long'] = (mu_selected < lower_bound.iloc[0]).astype(int)
+    señales['Short'] = (mu_selected > upper_bound.iloc[0]).astype(int)
+
+    # Ajustar posiciones balanceadas usando el hedge ratio
+    señales['Long_Size'] = señales['Long'] * hedge_ratio
+    señales['Short_Size'] = señales['Short'] * hedge_ratio
+
+    return señales

@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from statsmodels.tsa.stattools import adfuller, coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen, VECM
 
@@ -121,7 +122,7 @@ def aplicar_filtro_kalman_reg(series):
     - series: DataFrame con precios de los activos (debe tener dos columnas).
 
     Retorna:
-    - hedge_ratio: Serie con el hedge ratio dinámico.
+    - hedge_ratio: Serie con el hedge ratio dinámico sin valores NaN.
     """
     kf = KalmanFilterReg()
     hedge_ratios = []
@@ -131,4 +132,51 @@ def aplicar_filtro_kalman_reg(series):
         kf.update(row.iloc[1], row.iloc[0])  # y = activo 1, x = activo 2
         hedge_ratios.append(kf.x[1])
 
-    return pd.Series(hedge_ratios, index=series.index)
+    hedge_ratio_series = pd.Series(hedge_ratios, index=series.index)
+
+    # Eliminar valores NaN en lugar de rellenarlos
+    hedge_ratio_series.dropna(inplace=True)
+
+    return hedge_ratio_series
+
+
+def backtest_estrategia_balanceada(data, señales, hedge_ratio, capital_inicial=1_000_000, comision=0.00125):
+    """
+    Realiza un backtest de la estrategia considerando margen, comisiones y capital inicial.
+
+    Parámetros:
+    - data: DataFrame con precios de los activos.
+    - señales: DataFrame con señales de trading balanceadas.
+    - hedge_ratio: Serie con el hedge ratio dinámico.
+    - capital_inicial: Capital disponible para operar (por defecto $1,000,000 USD).
+    - comision: Costo de transacción por operación (0.125%).
+
+    Retorna:
+    - DataFrame con la evolución del capital y el rendimiento acumulado.
+    """
+    capital = capital_inicial
+    posicion = 0
+    rendimiento = []
+    capital_hist = []
+
+    for i in range(len(señales)):
+        if señales['Long'].iloc[i] == 1:
+            size = (capital * 0.10) / data.iloc[i, 0]  # 10% del capital
+            costo_transaccion = size * data.iloc[i, 0] * comision
+            capital -= costo_transaccion
+            posicion += size * hedge_ratio.iloc[i]
+
+        elif señales['Short'].iloc[i] == 1:
+            size = (capital * 0.10) / data.iloc[i, 0]  # 10% del capital
+            costo_transaccion = size * data.iloc[i, 0] * comision
+            capital -= costo_transaccion
+            posicion -= size * hedge_ratio.iloc[i]
+
+        # Calcular valor de la posición
+        valor_posicion = posicion * data.iloc[i, 0]
+        capital_actual = capital + valor_posicion
+        rendimiento.append(capital_actual - capital_inicial)
+        capital_hist.append(capital_actual)
+
+    resultado = pd.DataFrame({'Capital': capital_hist, 'Rendimiento': rendimiento}, index=data.index)
+    return resultado
