@@ -1,10 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from kalman_ import KalmanFilterReg
+#from kalman_ import KalmanFilterReg
 import pandas as pd
 import yfinance as yf
 from se_trading import generar_senales_trading, ajustar_estrategia_balanceada, visualizar_senales
-from cointegration import analizar_cointegracion, prueba_cointegracion_johansen, entrenar_vecm, aplicar_filtro_kalman_reg, backtest_estrategia_balanceada, visualizar_trading_signals
+from cointegration import analizar_cointegracion, johansen_cointegration_test
 
 tickers = ['CVX', 'VLO']
 start_date = "2015-08-22"
@@ -12,6 +12,7 @@ start_date = "2015-08-22"
 data = yf.download(tickers, start=start_date)["Open"]
 data = pd.DataFrame(data)
 data = data.dropna()
+norm = (data - data.mean()) / data.std()
 
 # ✅ 2. Verificar cointegración y correlación
 resultados = analizar_cointegracion(data, tickers)
@@ -19,46 +20,62 @@ print(resultados)
 
 cor = data.corr()
 print(f"Correlación entre {tickers[0]} y {tickers[1]}:", cor[tickers[0]][tickers[1]])
-c_johansen = prueba_cointegracion_johansen(data, tickers)
+c_johansen = johansen_cointegration_test(data)
 print(c_johansen)
 
-# ✅ 4. Aplicar VECM y generar señales de trading
-c_vecm, mu = entrenar_vecm(data, tickers)
-sena_tra = generar_senales_trading(mu)
+spread_jo = 0.08684451 * data['CVX'] - 0.08036587 * data['VLO']
+spread_normalizado = (spread_jo - spread_jo.mean()) / spread_jo.std()
 
-# ✅ 5. Visualizar señales
-visualizar_senales(mu, sena_tra)
+# Definir Umbrales +- 1.5 std
+threshold_up = 1.5 * spread_jo.std()
+threshold_down = -1.5 * spread_jo.std()
 
-# ✅ 6. Aplicar Filtro de Kalman (Corrigiendo el tamaño)
-hedge_ratio_kalman = aplicar_filtro_kalman_reg(data)
+#SEÑALES
+spread_df = spread_normalizado.to_frame(name='spread').sort_index()
+short_cvx_long_vlo = spread_df[spread_df['spread'] > threshold_up]
+short_vlo_long_cvx = spread_df[spread_df['spread'] < threshold_down]
 
-# Asegurar que el hedge ratio tiene el mismo tamaño que data
-hedge_ratio_kalman = hedge_ratio_kalman.reindex(data.index, method='ffill')
+# GRAFIC
+fig, (ax1, ax2) = plt.subplots(2,1, sharex=True, figsize=(12,8))
+ax1.plot(norm.index, norm['CVX'], label='CVX', color='blue')
+ax1.plot(norm.index, norm['VLO'], label='VLO', color='Yellow')
 
-# ✅ 7. Ajustar estrategia balanceada con Hedge Ratio corregido
-estr_bal = ajustar_estrategia_balanceada(sena_tra, hedge_ratio_kalman)
-visualizar_trading_signals(data, estr_bal, tickers)
-visualizar_senales(mu, estr_bal)
+ax1.scatter(short_cvx_long_vlo.index, norm['CVX'].reindex(short_cvx_long_vlo.index), marker='v', color='red', s=100, label='Short CVX')
+ax1.scatter(short_cvx_long_vlo.index, norm['VLO'].reindex(short_cvx_long_vlo.index), marker='^', color='green', s=100, label='Long VLO')
 
-# ✅ 8. Verificación de tamaños antes del backtest
-print(f"Tamaño de data: {len(data)}")
-print(f"Tamaño de hedge_ratio: {len(hedge_ratio_kalman)}")
-print(f"Tamaño de señales: {len(estr_bal)}")
+ax1.scatter(short_vlo_long_cvx.index, norm['VLO'].reindex(short_vlo_long_cvx.index), marker='v', color='red', s=100, label='Short VLO')
+ax1.scatter(short_vlo_long_cvx.index, norm['CVX'].reindex(short_vlo_long_cvx.index), marker='^', color='green', s=100, label='Long CVX')
 
-# ✅ 9. Ejecutar Backtest (Activar cuando todo esté corregido)
-resultado_backtest = backtest_estrategia_balanceada(data, estr_bal, hedge_ratio_kalman)
-print(resultado_backtest)
+ax1.set_title("Comparación normalizada (Min-Max) SHEL vs VLO (10 años) + Señales Pairs Trading")
+ax1.set_ylabel("Precio Normalizado")
+ax1.grid(True)
 
-# ✅ 10. Visualizar evolución del capital en el backtest
-plt.figure(figsize=(12, 6))
-plt.plot(resultado_backtest['Capital'], label='Capital Acumulado', color='blue')
-plt.axhline(1_000_000, color='red', linestyle='dashed', label='Capital Inicial')
-plt.xlabel('Fecha')
-plt.ylabel('Capital ($)')
-plt.title('Evolución del Capital en el Backtest')
-plt.legend()
-plt.grid()
+handles1, labels1 = ax1.get_legend_handles_labels()
+# Filtramos duplicados conservando el orden
+unique = list(dict(zip(labels1, handles1)).items())
+ax1.legend([u[1] for u in unique], [u[0] for u in unique], loc='best')
+
+ax2.plot(spread_df.index, spread_df['spread'], label="Spread (Johansen) centrado", color='magenta')
+ax2.axhline(threshold_up, color='blue', linestyle='--', label='+1.5 Sigma')
+ax2.axhline(threshold_down, color='blue', linestyle='--', label='-1.5 Sigma')
+ax2.axhline(0, color='black', linestyle='--', label='Media 0')
+ax2.set_title("Spread (Johansen) con ±1.5 STD")
+ax2.set_xlabel("Fecha")
+ax2.set_ylabel("Spread")
+ax2.grid(True)
+ax2.legend(loc="best")
+
+plt.tight_layout()
 plt.show()
+
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     print('PyCharm')
