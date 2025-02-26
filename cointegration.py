@@ -1,19 +1,42 @@
-import statsmodels.api as sm
-from statsmodels.tsa.stattools import adfuller
-from statsmodels.tsa.vector_ar.vecm import coint_johansen
+import numpy as np
+import pandas as pd
+from statsmodels.tsa.stattools import adfuller, coint
 
-def run_adf_test(series, name: str):
-    series = series.dropna()
-    result = adfuller(series)
-    print(f"{name} ADF Statistic: {result[0]:.4f}")
-    print(f"{name} p-value: {result[1]:.4f}")
-    return result[1]  # Devuelve el p-valor
+def analizar_cointegracion(data, activos, alpha=0.05):
+    """
+    Analiza si dos activos son estacionarios y si están cointegrados.
 
-# Verificamos la cointegración con Engle-Granger
-def engle_granger_cointegration_test(df):
-    series1, series2 = df.iloc[:, 0], df.iloc[:, 1]
-    df_reg = sm.add_constant(df)
-    model = sm.OLS(df_reg.iloc[:, 0], df_reg.iloc[:, [1, 2]]).fit()
-    residuals = model.resid
-    p_value = adfuller(residuals.dropna())[1]
-    return p_value
+    Parámetros:
+    - data: DataFrame con los precios de los activos.
+    - activos: Lista con los nombres de los dos activos a analizar.
+    - alpha: Nivel de significancia para las pruebas (por defecto 0.05).
+
+    Retorna:
+    - Diccionario con los resultados de estacionariedad y cointegración.
+    """
+    resultados = {}
+
+    for activo in activos:
+        serie = data[activo].dropna()
+        adf_test = adfuller(serie)
+        p_value = adf_test[1]
+        resultados[activo] = {
+            "Estacionario": p_value < alpha,
+            "ADF p-valor": p_value
+        }
+
+    # Si ambos activos son estacionarios, no tiene sentido hacer cointegración
+    if resultados[activos[0]]["Estacionario"] and resultados[activos[1]]["Estacionario"]:
+        resultados["Cointegración"] = "No aplica (ambos son estacionarios)"
+        return resultados
+
+    # Prueba de cointegración de Engle-Granger
+    serie1, serie2 = data[activos[0]].dropna(), data[activos[1]].dropna()
+    score, p_value, _ = coint(serie1, serie2)
+
+    resultados["Cointegración"] = {
+        "Cointegrado": p_value < alpha,
+        "Coint p-valor": p_value
+    }
+
+    return resultados

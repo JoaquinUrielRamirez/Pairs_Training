@@ -1,6 +1,6 @@
 import yfinance as yf
 
-def data(tickers, start):
+def data_(tickers, start):
     o_general = yf.download(tickers, start=start)["Close"]
     o_general = o_general.dropna()
     tipo_de_cambio = o_general['MXN=X']
