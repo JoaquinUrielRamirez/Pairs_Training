@@ -46,7 +46,7 @@ ax1.scatter(short_cvx_long_vlo.index, norm['VLO'].reindex(short_cvx_long_vlo.ind
 ax1.scatter(short_vlo_long_cvx.index, norm['VLO'].reindex(short_vlo_long_cvx.index), marker='v', color='red', s=100, label='Short VLO')
 ax1.scatter(short_vlo_long_cvx.index, norm['CVX'].reindex(short_vlo_long_cvx.index), marker='^', color='green', s=100, label='Long CVX')
 
-ax1.set_title("Comparación normalizada (Min-Max) SHEL vs VLO (10 años) + Señales Pairs Trading")
+ax1.set_title("Comparación CVX vs VLO (10 años) + Señales Pairs Trading")
 ax1.set_ylabel("Precio Normalizado")
 ax1.grid(True)
 
@@ -132,15 +132,24 @@ print(vecm_signals.head(10))
 
 fig, (ax1, ax2) = plt.subplots(2,1, sharex=True, figsize=(12,8))
 ax1.plot(norm.index, norm['CVX'], label='CVX', color='blue')
-ax1.plot(norm.index, norm['VLO'], label='VLO', color='Yellow')
+ax1.plot(norm.index, norm['VLO'], label='VLO', color='black')
 
-ax1.scatter(short_cvx_long_vlo.index, norm['CVX'].reindex(short_cvx_long_vlo.index), marker='v', color='red', s=100, label='Short CVX')
-ax1.scatter(short_cvx_long_vlo.index, norm['VLO'].reindex(short_cvx_long_vlo.index), marker='^', color='green', s=100, label='Long VLO')
+short_signals = vecm_signals[vecm_signals['signal'] == -1]
+long_signals = vecm_signals[vecm_signals['signal'] == 1]
 
-ax1.scatter(short_vlo_long_cvx.index, norm['VLO'].reindex(short_vlo_long_cvx.index), marker='v', color='red', s=100, label='Short VLO')
-ax1.scatter(short_vlo_long_cvx.index, norm['CVX'].reindex(short_vlo_long_cvx.index), marker='^', color='green', s=100, label='Long CVX')
+# Marcar las señales sobre los precios normalizados
+ax1.scatter(short_signals.index, norm['CVX'].reindex(short_signals.index),
+            marker='v', color='red', s=100, label='Short CVX')
+ax1.scatter(short_signals.index, norm['VLO'].reindex(short_signals.index),
+            marker='^', color='green', s=100, label='Long VLO')
 
-ax1.set_title("Comparación normalizada (Min-Max) SHEL vs VLO (10 años) + Señales Pairs Trading")
+# Cuando se hace Short en VLO -> Se hace Long en CVX
+ax1.scatter(long_signals.index, norm['VLO'].reindex(long_signals.index),
+            marker='v', color='red', s=100, label='Short VLO')
+ax1.scatter(long_signals.index, norm['CVX'].reindex(long_signals.index),
+            marker='^', color='green', s=100, label='Long CVX')
+
+ax1.set_title("Comparación CVX vs VLO (10 años) + Señales Pairs Trading")
 ax1.set_ylabel("Precio Normalizado")
 ax1.grid(True)
 
@@ -175,5 +184,58 @@ plt.legend()
 plt.grid(True)
 plt.show()
 
+# Backtest de la estrategia
+capital_inicial = 1_000_000  # USD
+comision = 0.00125  # 0.125% en términos decimales
+capital = capital_inicial
+posicion_por_trade = 0.1  # 10% del capital por trade
+
+equity_curve = [capital]
+backtest = pd.DataFrame(index=vecm_signals.index)
+backtest['CVX Price'] = norm['CVX']
+backtest['VLO Price'] = norm['VLO']
+backtest['Signal'] = vecm_signals['signal']
+
+for i in range(1, len(backtest)):
+    signal = backtest['Signal'].iloc[i]
+
+    if signal != 0:
+        capital_trade = capital * posicion_por_trade
+        units_cvx = capital_trade / backtest['CVX Price'].iloc[i]
+        units_vlo = capital_trade / backtest['VLO Price'].iloc[i]
+
+        if signal == 1:  # Long CVX, Short VLO
+            cost_cvx = (units_cvx * backtest['CVX Price'].iloc[i]) * (1 + comision)
+            cost_vlo = (units_vlo * backtest['VLO Price'].iloc[i]) * (1 - comision)
+            pnl_cvx = units_cvx * (backtest['CVX Price'].iloc[i] - backtest['CVX Price'].iloc[i - 1])
+            pnl_vlo = -units_vlo * (backtest['VLO Price'].iloc[i] - backtest['VLO Price'].iloc[i - 1])
+
+        else:  # Short CVX, Long VLO
+            cost_cvx = (units_cvx * backtest['CVX Price'].iloc[i]) * (1 - comision)
+            cost_vlo = (units_vlo * backtest['VLO Price'].iloc[i]) * (1 + comision)
+            pnl_cvx = -units_cvx * (backtest['CVX Price'].iloc[i] - backtest['CVX Price'].iloc[i - 1])
+            pnl_vlo = units_vlo * (backtest['VLO Price'].iloc[i] - backtest['VLO Price'].iloc[i - 1])
+
+        capital += pnl_cvx + pnl_vlo - (cost_cvx + cost_vlo) * comision
+
+    equity_curve.append(capital)
+
+backtest['Equity'] = equity_curve
+
+# Graficar resultados del backtest
+plt.figure(figsize=(12, 6))
+plt.plot(backtest.index, backtest['Equity'], label="Equity Curve", color='blue')
+plt.axhline(y=capital_inicial, color='black', linestyle='--', label="Capital Inicial")
+plt.title("Backtest de la Estrategia de Pairs Trading")
+plt.xlabel("Fecha")
+plt.ylabel("Capital (USD)")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+if __name__ == '__main__':
+    print('Ejecución completa')
+
 if __name__ == '__main__':
     print('PyCharm')
+
