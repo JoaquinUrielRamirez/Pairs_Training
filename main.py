@@ -44,10 +44,7 @@ print(vecm_signals.head(10))
 capital_inicial = 1_000_000  # USD
 comision = 0.00125  # 0.125% en términos decimales
 
-backtest_result = backtest_estrategia(vecm_signals['ECT'], data, capital_inicial, comision=comision)
-
-# Visualizar resultado del backtest
-visualizar_backtest(backtest_result)
+backtest_result, trades = backtest_estrategia(vecm_signals['ECT'], data, capital_inicial, comision=comision)
 
 # Visualización de la estrategia de trading
 fig, (ax1, ax2) = plt.subplots(2,1, sharex=True, figsize=(12,8))
@@ -83,6 +80,11 @@ ax2.grid(True)
 
 plt.tight_layout()
 plt.show()
+
+# Visualizar resultado del backtest
+trades = trades.dropna()
+visualizar_backtest(backtest_result, trades)
+print(len(trades))
 
 if __name__ == '__main__':
     print('Ejecución completa')
