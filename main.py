@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import yfinance as yf
-from se_trading import generar_senales_trading, backtest_estrategia, visualizar_backtest
+from se_trading import generar_senales_trading, backtest_estrategia, calcular_metrica_backtest, graficar_equity_curve, graficar_activos_vs_estrategia, graficar_spread_trading
 from cointegration import analizar_cointegracion, johansen_cointegration_test, generate_vecm_signals, run_kalman_filter_custom, ols_regression_and_plot
 
 # Configuración de tickers y fechas
@@ -39,10 +39,11 @@ data['hedge_ratio'] = kalman_results['beta']
 vecm_signals, vecm_res = generate_vecm_signals(log_data, det_order=0, k_ar_diff=1, threshold_sigma=1.5)
 print("\nSeñales (primeras 10 filas):")
 print(vecm_signals.head(10))
+print(len(vecm_signals))
 
 # Backtest de la estrategia con cierre de posiciones
 capital_inicial = 1_000_000  # USD
-comision = 0.00125  # 0.125% en términos decimales
+comision = 0.00125
 
 backtest_result, trades = backtest_estrategia(vecm_signals['ECT'], data, capital_inicial, comision=comision)
 
@@ -83,8 +84,19 @@ plt.show()
 
 # Visualizar resultado del backtest
 trades = trades.dropna()
-visualizar_backtest(backtest_result, trades)
-print(len(trades))
+metricas_df = calcular_metrica_backtest(trades, backtest_result)
+# Mostrar métricas
+print("Métricas del Backtest:")
+print(metricas_df.to_string(index=False))
+
+# Graficar curva de capital
+graficar_equity_curve(backtest_result, trades)
+
+# Grafico de Activos Originales vs Estrategia de Pares
+graficar_activos_vs_estrategia(data, backtest_result, trades, vecm_signals['ECT'])
+graficar_spread_trading(vecm_signals['ECT'])
+#Analisis de Trades
+trades.to_excel('trades.xlsx', index=False)
 
 if __name__ == '__main__':
     print('Ejecución completa')
