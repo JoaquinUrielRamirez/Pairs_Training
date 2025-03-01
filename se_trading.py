@@ -3,6 +3,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
+def generate_signals_with_kalman(log_df, threshold_sigma=1.5):
+
+    log_df_shift = log_df.shift(1).dropna()
+
+    # Spread dinámico basado en hedge ratio de Kalman
+    ect = log_df_shift['CVX'] - log_df_shift['VLO'] * log_df_shift['hedge_ratio']
+
+    # Calcular umbrales
+    ect_mean = ect.mean()
+    ect_std = ect.std()
+    up_threshold = ect_mean + threshold_sigma * ect_std
+    down_threshold = ect_mean - threshold_sigma * ect_std
+
+    # Generar señales
+    signals = ect.apply(lambda x: -1 if x > up_threshold else (1 if x < down_threshold else 0))
+    signals_df = pd.DataFrame({'ECT': ect, 'signal': signals})
+
+    return signals_df
+
 def generar_senales_trading(mu, std_threshold=1.5):
 
     mu_mean = mu.mean()
@@ -16,6 +35,47 @@ def generar_senales_trading(mu, std_threshold=1.5):
     señales['Short_VLO_Long_CVX'] = (mu_selected < lower_bound).astype(int)
 
     return señales
+
+def graficar_estrategia_y_ect(norm, vecm_signals):
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 8))
+
+    # 📊 Precios normalizados
+    ax1.plot(norm.index, norm['CVX'], label='CVX', color='blue')
+    ax1.plot(norm.index, norm['VLO'], label='VLO', color='black')
+
+    # 📌 Extraer señales
+    short_signals = vecm_signals[vecm_signals['signal'] == -1]
+    long_signals = vecm_signals[vecm_signals['signal'] == 1]
+
+    # 🔴 Marcar señales sobre los precios normalizados
+    ax1.scatter(short_signals.index, norm['CVX'].reindex(short_signals.index), marker='v', color='red', s=100, label='Short CVX')
+    ax1.scatter(short_signals.index, norm['VLO'].reindex(short_signals.index), marker='^', color='green', s=100, label='Long VLO')
+    ax1.scatter(long_signals.index, norm['VLO'].reindex(long_signals.index), marker='v', color='red', s=100, label='Short VLO')
+    ax1.scatter(long_signals.index, norm['CVX'].reindex(long_signals.index), marker='^', color='green', s=100, label='Long CVX')
+
+    ax1.set_title("CVX vs VLO (10 years) + Pairs Trading Signals")
+    ax1.set_ylabel("Normalized Price")
+    ax1.grid(True)
+    ax1.legend()
+
+    # 📈 Graficar ECT y señales
+    ax2.plot(vecm_signals.index, vecm_signals['ECT'], label='ECT', color='purple')
+    ax2.axhline(vecm_signals['ECT'].mean() + 1.5 * vecm_signals['ECT'].std(), color='blue', linestyle='--', label='+1.5 Sigma')
+    ax2.axhline(vecm_signals['ECT'].mean() - 1.5 * vecm_signals['ECT'].std(), color='blue', linestyle='--', label='-1.5 Sigma')
+    ax2.axhline(vecm_signals['ECT'].mean(), color='red', linestyle='--', label='ECT Mean')
+
+    ax2.scatter(short_signals.index, short_signals['ECT'], marker='v', color='red', s=100, label='Sell Signal')
+    ax2.scatter(long_signals.index, long_signals['ECT'], marker='^', color='green', s=100, label='Buy Signal')
+
+    ax2.set_title("VECM: ECT and Trading Signals (±1.5σ)")
+    ax2.set_xlabel("Date")
+    ax2.set_ylabel("ECT")
+    ax2.legend()
+    ax2.grid(True)
+
+    plt.tight_layout()
+    plt.show()
 
 def backtest_estrategia(mu, precios, capital_inicial=1_000_000, std_threshold=1.5, comision=0.00125, target_ganancia=0.25):
 
@@ -145,25 +205,20 @@ def calcular_metrica_backtest(trades_log_df, equity_curve):
 def graficar_equity_curve(equity_curve, trades_log_df):
 
     plt.figure(figsize=(12,6))
-    plt.plot(equity_curve.index, equity_curve["Equity"], label="Evolución del Capital", color="royalblue")
+    plt.plot(equity_curve.index, equity_curve["Equity"], label="Capital Evolution", color="royalblue")
 
     # Marcar los trades cerrados con puntos rojos
     for _, trade in trades_log_df.iterrows():
-        plt.scatter(trade["Fecha_cierre"], trade["Capital"], color="green", marker="o", label="Trade Cerrado" if _ == 0 else "")
+        plt.scatter(trade["Fecha_cierre"], trade["Capital"], color="green", marker="o", label="Complete Trade" if _ == 0 else "")
 
-    plt.title("Evolución del Capital con Trades Cerrados")
-    plt.xlabel("Fecha")
+    plt.title("Capital Evolution with Complete Trades")
+    plt.xlabel("Date")
     plt.ylabel("Capital")
     plt.legend()
     plt.grid()
     plt.show()
 
 def graficar_activos_vs_estrategia(precios, equity_curve, trades_log_df, mu):
-    """
-    Gráfica final completa:
-    - Arriba: Activos normalizados y curva de capital con marcadores de cierre de trades.
-    - Abajo: Spread (ECT) con ±1.5σ constantes y señales de trading.
-    """
 
     fig = plt.figure(figsize=(14, 10))
     gs = gridspec.GridSpec(2, 1, height_ratios=[2, 1])  # Dos subgráficos: 2/3 arriba y 1/3 abajo
@@ -175,17 +230,17 @@ def graficar_activos_vs_estrategia(precios, equity_curve, trades_log_df, mu):
     precios_norm = precios / precios.iloc[0]
     equity_norm = equity_curve / equity_curve.iloc[0]
 
-    ax1.plot(precios_norm.index, precios_norm["CVX"], label="CVX (Normalizado)", color="blue", alpha=0.6)
-    ax1.plot(precios_norm.index, precios_norm["VLO"], label="VLO (Normalizado)", color="orange", alpha=0.6)
-    ax1.plot(equity_norm.index, equity_norm["Equity"], label="Estrategia de Pairs Trading", color="green", linewidth=2)
+    ax1.plot(precios_norm.index, precios_norm["CVX"], label="CVX (Normalized)", color="blue", alpha=0.6)
+    ax1.plot(precios_norm.index, precios_norm["VLO"], label="VLO (Normalized)", color="black", alpha=0.6)
+    ax1.plot(equity_norm.index, equity_norm["Equity"], label="Pairs Trading Strategy", color="green", linewidth=2)
 
     # 🔴 Marcar trades cerrados sobre la curva de capital
     for _, trade in trades_log_df.iterrows():
         ax1.scatter(trade["Fecha_cierre"], equity_norm.loc[trade["Fecha_cierre"], "Equity"],
                     color="red", marker="o", s=50, label="Trade Cerrado" if _ == 0 else "")
 
-    ax1.set_title("Evolución de los Activos y Estrategia de Pairs Trading (Normalizado)")
-    ax1.set_ylabel("Valor Normalizado")
+    ax1.set_title("Actives vs Pairs Trading")
+    ax1.set_ylabel("Normalized Value")
     ax1.legend()
     ax1.grid()
 
@@ -210,14 +265,14 @@ def graficar_activos_vs_estrategia(precios, equity_curve, trades_log_df, mu):
 
     # 🔴 Señales de Venta (cuando el spread cruza arriba de +1.5σ)
     ventas = mu > upper_band
-    ax2.scatter(mu.index[ventas], mu[ventas], color="red", marker="v", s=40, label="Señal Venta")
+    ax2.scatter(mu.index[ventas], mu[ventas], color="red", marker="v", s=40, label="Sell Signal")
 
     # 🟢 Señales de Compra (cuando el spread cruza abajo de -1.5σ)
     compras = mu < lower_band
-    ax2.scatter(mu.index[compras], mu[compras], color="green", marker="^", s=40, label="Señal Compra")
+    ax2.scatter(mu.index[compras], mu[compras], color="green", marker="^", s=40, label="Buy Signal")
 
-    ax2.set_title("Evolución del Spread (ECT) con ±1.5σ y Señales de Trading")
-    ax2.set_xlabel("Fecha")
+    ax2.set_title("Spread Evolution (ECT) with  ±1.5σ and Trading Signals")
+    ax2.set_xlabel("Date")
     ax2.set_ylabel("ECT")
     ax2.legend()
     ax2.grid()
@@ -227,9 +282,6 @@ def graficar_activos_vs_estrategia(precios, equity_curve, trades_log_df, mu):
     plt.show()
 
 def graficar_spread_trading(mu):
-    """
-    Gráfica del spread (ECT) con señales de compra y venta basadas en ±1.5σ.
-    """
 
     fig, ax = plt.subplots(figsize=(14, 5))
 
@@ -251,17 +303,17 @@ def graficar_spread_trading(mu):
 
     # 🔴 Señales de Venta (cuando el spread cruza arriba de +1.5σ)
     ventas = mu > upper_band
-    ax.scatter(mu.index[ventas], mu[ventas], color="red", marker="v", s=40, label="Señal Venta")
+    ax.scatter(mu.index[ventas], mu[ventas], color="red", marker="v", s=40, label="Sell Signal")
 
     # 🟢 Señales de Compra (cuando el spread cruza abajo de -1.5σ)
     compras = mu < lower_band
-    ax.scatter(mu.index[compras], mu[compras], color="green", marker="^", s=40, label="Señal Compra")
+    ax.scatter(mu.index[compras], mu[compras], color="green", marker="^", s=40, label="Buy Signal")
 
     # 📌 Configuración de la gráfica
-    ax.set_title("VECM: ECT y Señales de Trading (±1.5σ)")
-    ax.set_xlabel("Fecha")
+    ax.set_title("VECM: ECT and Trading Signals (±1.5σ)")
+    ax.set_xlabel("Date")
     ax.set_ylabel("ECT")
     ax.legend()
     ax.grid()
-
     plt.show()
+

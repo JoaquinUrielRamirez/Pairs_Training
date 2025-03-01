@@ -6,11 +6,7 @@ from statsmodels.tsa.vector_ar.vecm import coint_johansen, VECM
 from sklearn.linear_model import LinearRegression
 
 def analizar_cointegracion(data, activos, alpha=0.05):
-    """
-    Analiza si dos activos son estacionarios y si están cointegrados.
-    Retorna:
-    - Diccionario con los resultados de estacionariedad y cointegración.
-    """
+
     resultados = {}
     for activo in activos:
         serie = data[activo].dropna()
@@ -37,10 +33,7 @@ def analizar_cointegracion(data, activos, alpha=0.05):
     return resultados
 
 def ols_regression_and_plot(series_dep, series_indep, dep_label="VLO", indep_label="CVX"):
-    """
-    Realiza una regresión OLS entre la serie dependiente (VLO) y la independiente (CVX),
-    imprime los coeficientes del modelo y grafica la relación.
-    """
+
     combined = pd.concat([series_dep, series_indep], axis=1).dropna()
     combined.columns = [dep_label, indep_label]
 
@@ -73,10 +66,7 @@ def ols_regression_and_plot(series_dep, series_indep, dep_label="VLO", indep_lab
 
 
 def johansen_cointegration_test(df, det_order=0, k_ar_diff=1):
-    """
-    Realiza el test de cointegración de Johansen sobre el DataFrame df.
-    Retorna el objeto resultado del test.
-    """
+
     result = coint_johansen(df, det_order, k_ar_diff)
     print("\n--- Test de Johansen ---")
     print("Eigenvalues:", result.eig)
@@ -146,26 +136,34 @@ def run_kalman_filter_custom(log_x, log_y):
 
 
 def generate_vecm_signals(log_df, det_order=0, k_ar_diff=1, threshold_sigma=1.5):
-    """
-    Ajusta un VECM y genera señales de trading basadas en el Error Correction Term (ECT).
-    """
     vecm_model = VECM(log_df, deterministic='co', k_ar_diff=k_ar_diff, coint_rank=1)
     vecm_res = vecm_model.fit()
-
     beta = vecm_res.beta[:, 0]  # Vector cointegrante
     const = beta[-1] if len(beta) > 2 else 0.0
     beta_assets = beta[:-1] if len(beta) > 2 else beta
-
     log_df_shift = log_df.shift(1).dropna()
     ect = log_df_shift.dot(beta_assets) + const
-
     # Calcular umbrales
     ect_mean = ect.mean()
     ect_std = ect.std()
     up_threshold = ect_mean + threshold_sigma * ect_std
     down_threshold = ect_mean - threshold_sigma * ect_std
-
     # Generar señales
     signals = ect.apply(lambda x: -1 if x > up_threshold else (1 if x < down_threshold else 0))
     signals_df = pd.DataFrame({'ECT': ect, 'signal': signals})
     return signals_df, vecm_res
+
+
+def graficar_hedge_ratios(hedge_ratio_kalman, hedge_ratio_vecm):
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(hedge_ratio_kalman.index, hedge_ratio_kalman, label="Hedge Ratio (Kalman Filter)", color="orange",
+             linewidth=2)
+    plt.axhline(y=hedge_ratio_vecm, color="purple", linestyle="--", linewidth=2, label="Hedge Ratio (VECM, constante)")
+
+    plt.title("Comparación de Hedge Ratios: Kalman vs VECM")
+    plt.xlabel("Fecha")
+    plt.ylabel("Hedge Ratio")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
