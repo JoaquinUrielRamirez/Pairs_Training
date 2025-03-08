@@ -48,14 +48,16 @@ def graficar_estrategia_y_ect(norm, vecm_signals):
 def backtest_estrategia(mu, precios, hedge_ratios, capital_inicial=1_000_000, std_threshold=1.5, comision=0.00125):
     """
     Backtest de una estrategia de pairs trading con hedge ratio dinámico basado en Kalman Filter,
-    asegurando que la curva de capital refleje toda la evolución, incluyendo periodos con posiciones activas.
+    asegurando que TODAS las posiciones abiertas se cierren cuando el spread regresa a su media.
     """
     señales = mu['signal']
     capital = capital_inicial
     posicion_por_trade = 0.1  # Cada trade usa 10% del capital disponible
-    equity_curve = []  # Ahora guardaremos el capital en cada iteración
+    equity_curve = []  # Evolución del capital en cada iteración
     posiciones_abiertas = []
     trades_log = []
+
+    mu_mean = mu['ECT'].mean()  # Asegurar que tomamos solo la columna ECT y convertimos a escalar
 
     for i in range(1, len(mu)):
         fecha = mu.index[i]
@@ -77,13 +79,13 @@ def backtest_estrategia(mu, precios, hedge_ratios, capital_inicial=1_000_000, st
                 'Unidades_VLO': -units_vlo if signal == 1 else units_vlo,
                 'Precio_entrada_CVX': price_cvx,
                 'Precio_entrada_VLO': price_vlo,
-                'Hedge Ratio': hedge_ratio,  # Guardamos el hedge ratio original
-                'Capital_asignado': capital_trade,
+                'Hedge Ratio': hedge_ratio,
+                'Capital_asignado': capital_trade if signal == 1 else 0,  # Capital solo se usa en LONG
                 'Abierta': True
             }
             posiciones_abiertas.append(nueva_posicion)
 
-        # Evaluar la evolución de la capitalización con posiciones abiertas
+        # Evaluar la evolución del capital con posiciones abiertas
         capital_temp = capital
         for posicion in posiciones_abiertas:
             if not posicion['Abierta']:
@@ -92,45 +94,49 @@ def backtest_estrategia(mu, precios, hedge_ratios, capital_inicial=1_000_000, st
             pnl_cvx = (price_cvx - posicion['Precio_entrada_CVX']) * posicion['Unidades_CVX']
             pnl_vlo = (price_vlo - posicion['Precio_entrada_VLO']) * posicion['Unidades_VLO']
 
-            capital_temp += pnl_cvx + pnl_vlo
+            capital_temp += pnl_cvx + pnl_vlo  # Capital solo cambia en LONG o cuando cierra un SHORT
 
-        equity_curve.append(capital_temp)  # Guardamos la evolución del capital en cada iteración
+        equity_curve.append(capital_temp)
 
-        # Cierre de posiciones cuando el spread regresa a la media
-        for posicion in posiciones_abiertas:
-            if not posicion['Abierta']:
-                continue
+        # Cierre de TODAS las posiciones si el spread regresa a la media
+        if abs(mu['ECT'].iloc[i] - mu_mean) < 0.01 and posiciones_abiertas:
+            for posicion in posiciones_abiertas:
+                if not posicion['Abierta']:
+                    continue
 
-            # Recuperar el hedge ratio original de apertura
-            hedge_ratio_original = posicion['Hedge Ratio']
+                hedge_ratio_original = posicion['Hedge Ratio']
+                units_cvx_salida = posicion['Unidades_CVX']
+                units_vlo_salida = posicion['Unidades_VLO']
 
-            # Calcular las unidades de salida con el hedge ratio original
-            units_cvx_salida = posicion['Unidades_CVX']
-            units_vlo_salida = posicion['Unidades_VLO']
+                pnl_cvx = (price_cvx - posicion['Precio_entrada_CVX']) * units_cvx_salida
+                pnl_vlo = (price_vlo - posicion['Precio_entrada_VLO']) * units_vlo_salida
 
-            pnl_cvx = (price_cvx - posicion['Precio_entrada_CVX']) * units_cvx_salida
-            pnl_vlo = (price_vlo - posicion['Precio_entrada_VLO']) * units_vlo_salida
+                comision_cvx = abs(units_cvx_salida) * (posicion['Precio_entrada_CVX'] + price_cvx) * 0.5 * comision
+                comision_vlo = abs(units_vlo_salida) * (posicion['Precio_entrada_VLO'] + price_vlo) * 0.5 * comision
 
-            comision_cvx = abs(units_cvx_salida) * (posicion['Precio_entrada_CVX'] + price_cvx) * 0.5 * comision
-            comision_vlo = abs(units_vlo_salida) * (posicion['Precio_entrada_VLO'] + price_vlo) * 0.5 * comision
+                pnl_total = pnl_cvx + pnl_vlo - (comision_cvx + comision_vlo)
 
-            pnl_total = pnl_cvx + pnl_vlo - (comision_cvx + comision_vlo)
-            capital += pnl_total
+                if posicion['Señal'] == 'Short CVX - Long VLO':
+                    capital += pnl_total  # El capital solo cambia al cerrar un SHORT
 
-            posicion.update({
-                'Precio_salida_CVX': price_cvx,
-                'Precio_salida_VLO': price_vlo,
-                'PnL': pnl_total,
-                'Capital': capital,
-                'Fecha_cierre': fecha,
-                'Abierta': False
-            })
-            trades_log.append(posicion)
+                posicion.update({
+                    'Precio_salida_CVX': price_cvx,
+                    'Precio_salida_VLO': price_vlo,
+                    'PnL': pnl_total,
+                    'Capital': capital,
+                    'Fecha_cierre': fecha,
+                    'Abierta': False
+                })
+                trades_log.append(posicion)
+
+            # Una vez cerradas todas, vaciar la lista de posiciones abiertas
+            posiciones_abiertas = []
 
     trades_log_df = pd.DataFrame(trades_log)
     backtest_result = pd.DataFrame(index=mu.index[1:], data={'Equity': equity_curve})
 
     return backtest_result, trades_log_df
+
 
 def calcular_metrica_backtest(trades_log_df, equity_curve):
 

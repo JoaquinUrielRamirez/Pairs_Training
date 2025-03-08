@@ -31,7 +31,7 @@ kalman_results = run_kalman_filter_custom(data['CVX'], data['VLO'])
 print("\nHedge Ratio estimado con Kalman (últimos valores):")
 print(kalman_results.tail())
 
-# Generar señales con VECM usando Johansen
+# Generar señales con VECM usando Johansen y spread normalizado
 vecm_signals = generate_vecm_signals(data, threshold_sigma=1.5)
 graficar_spread_trading(vecm_signals['ECT'])
 print("\nSeñales (primeras 10 filas):")

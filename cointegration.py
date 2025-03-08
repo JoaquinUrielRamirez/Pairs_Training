@@ -46,15 +46,18 @@ def generate_vecm_signals(data, threshold_sigma=1.5):
     beta = johansen_result.evec[:, 0]  # Primer eigenvector
 
     ect = data.dot(beta)
+
+    # 🔹 Normalizar el spread (Z-score)
     ect_mean = ect.mean()
     ect_std = ect.std()
+    ect_normalizado = (ect - ect_mean) / ect_std
 
-    up_threshold = ect_mean + threshold_sigma * ect_std
-    down_threshold = ect_mean - threshold_sigma * ect_std
+    up_threshold = threshold_sigma
+    down_threshold = -threshold_sigma
 
-    signals = ect.apply(lambda x: -1 if x > up_threshold else (1 if x < down_threshold else 0))
+    signals = ect_normalizado.apply(lambda x: -1 if x > up_threshold else (1 if x < down_threshold else 0))
+    signals_df = pd.DataFrame({'ECT': ect_normalizado, 'signal': signals})
 
-    signals_df = pd.DataFrame({'ECT': ect, 'signal': signals})
     return signals_df
 
 
