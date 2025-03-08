@@ -180,21 +180,26 @@ def graficar_equity_curve(equity_curve, trades_log_df):
     plt.grid()
     plt.show()
 
-def graficar_activos_vs_estrategia(precios, equity_curve, trades_log_df, mu):
+def graficar_activos_vs_estrategia(precios, equity_curve, trades_log_df, vecm_signals):
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 8))
 
-    fig = plt.figure(figsize=(14, 10))
-    gs = gridspec.GridSpec(2, 1, height_ratios=[2, 1])  # Dos subgráficos: 2/3 arriba y 1/3 abajo
-
-    # 📈 Subgráfico superior: Activos y estrategia
-    ax1 = plt.subplot(gs[0])
-
-    # Normalizar precios y capital
+    # 📊 Precios normalizados
     precios_norm = precios / precios.iloc[0]
     equity_norm = equity_curve / equity_curve.iloc[0]
 
-    ax1.plot(precios_norm.index, precios_norm["CVX"], label="CVX (Normalized)", color="blue", alpha=0.6)
-    ax1.plot(precios_norm.index, precios_norm["VLO"], label="VLO (Normalized)", color="black", alpha=0.6)
-    ax1.plot(equity_norm.index, equity_norm["Equity"], label="Pairs Trading Strategy", color="green", linewidth=2)
+    ax1.plot(precios_norm.index, precios_norm['CVX'], label='CVX (Normalized)', color='blue')
+    ax1.plot(precios_norm.index, precios_norm['VLO'], label='VLO (Normalized)', color='orange')
+    ax1.plot(equity_norm.index, equity_norm['Equity'], label='Pairs Trading Strategy', color='black', linewidth=2)
+
+    # 📌 Extraer señales
+    short_signals = vecm_signals[vecm_signals['signal'] == -1]
+    long_signals = vecm_signals[vecm_signals['signal'] == 1]
+
+    # 🔴 Marcar señales sobre los precios normalizados
+    ax1.scatter(short_signals.index, precios_norm['CVX'].reindex(short_signals.index), marker='v', color='red', s=100, label='Short CVX')
+    ax1.scatter(short_signals.index, precios_norm['VLO'].reindex(short_signals.index), marker='^', color='green', s=100, label='Long VLO')
+    ax1.scatter(long_signals.index, precios_norm['VLO'].reindex(long_signals.index), marker='v', color='red', s=100, label='Short VLO')
+    ax1.scatter(long_signals.index, precios_norm['CVX'].reindex(long_signals.index), marker='^', color='green', s=100, label='Long CVX')
 
     # 🔴 Marcar trades cerrados sobre la curva de capital
     for _, trade in trades_log_df.iterrows():
@@ -207,41 +212,23 @@ def graficar_activos_vs_estrategia(precios, equity_curve, trades_log_df, mu):
     ax1.grid()
 
     # 📉 Subgráfico inferior: Spread (mu) con ±1.5σ y señales
-    ax2 = plt.subplot(gs[1], sharex=ax1)  # Comparte el eje X con la gráfica superior
+    ax2.plot(vecm_signals.index, vecm_signals['ECT'], label='Spread (ECT)', color='purple')
+    ax2.axhline(vecm_signals['ECT'].mean() + 1.5 * vecm_signals['ECT'].std(), color='blue', linestyle='--', label='+1.5 Sigma')
+    ax2.axhline(vecm_signals['ECT'].mean() - 1.5 * vecm_signals['ECT'].std(), color='blue', linestyle='--', label='-1.5 Sigma')
+    ax2.axhline(vecm_signals['ECT'].mean(), color='red', linestyle='--', label='ECT Mean')
 
-    # ✅ Media y desviación estándar constantes
-    mu_mean = mu.mean()
-    mu_std = mu.std()
+    ax2.scatter(short_signals.index, short_signals['ECT'], marker='v', color='red', s=100, label='Sell Signal')
+    ax2.scatter(long_signals.index, long_signals['ECT'], marker='^', color='green', s=100, label='Buy Signal')
 
-    # ✅ Expandir ±1.5σ para que tengan el mismo índice que mu
-    upper_band = pd.Series(mu_mean + 1.5 * mu_std, index=mu.index)
-    lower_band = pd.Series(mu_mean - 1.5 * mu_std, index=mu.index)
-
-    # 🔹 Graficar el spread con color fuerte y mayor grosor
-    ax2.plot(mu.index, mu, label="Spread (ECT)", color="purple", linestyle="solid", linewidth=1.5)
-
-    # 🔹 Graficar bandas de ±1.5σ y la media
-    ax2.plot(mu.index, upper_band, label="+1.5 Sigma", color="blue", linestyle="dashed", linewidth=1.2)
-    ax2.plot(mu.index, lower_band, label="-1.5 Sigma", color="blue", linestyle="dashed", linewidth=1.2)
-    ax2.plot(mu.index, [mu_mean] * len(mu), label="ECT Mean", color="red", linestyle="dashed", linewidth=1.2)
-
-    # 🔴 Señales de Venta (cuando el spread cruza arriba de +1.5σ)
-    ventas = mu > upper_band
-    ax2.scatter(mu.index[ventas], mu[ventas], color="red", marker="v", s=40, label="Sell Signal")
-
-    # 🟢 Señales de Compra (cuando el spread cruza abajo de -1.5σ)
-    compras = mu < lower_band
-    ax2.scatter(mu.index[compras], mu[compras], color="green", marker="^", s=40, label="Buy Signal")
-
-    ax2.set_title("Spread Evolution (ECT) with  ±1.5σ and Trading Signals")
+    ax2.set_title("Spread Evolution (ECT) with ±1.5σ and Trading Signals")
     ax2.set_xlabel("Date")
     ax2.set_ylabel("ECT")
     ax2.legend()
     ax2.grid()
 
-    # Ajustar los subgráficos
     plt.tight_layout()
     plt.show()
+
 
 def graficar_spread_trading(mu):
 

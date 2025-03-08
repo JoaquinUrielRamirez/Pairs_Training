@@ -56,7 +56,7 @@ print(metricas_df.to_string(index=False))
 graficar_equity_curve(backtest_result, trades)
 
 # Grafico de Activos Originales vs Estrategia de Pares
-graficar_activos_vs_estrategia(data, backtest_result, trades, vecm_signals['ECT'])
+graficar_activos_vs_estrategia(data, backtest_result, trades, vecm_signals)
 
 # Guardar análisis de trades
 trades.to_excel('trades.xlsx', index=False)
