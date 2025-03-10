@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import yfinance as yf
-from se_trading import backtest_estrategia, graficar_equity_curve, graficar_activos_vs_estrategia, graficar_spread_trading
+from se_trading import backtest_estrategia, graficar_equity_curve, graficar_activos_vs_estrategia, graficar_spread_trading, backtest_estrategia_propuesta
 from cointegration import analizar_cointegracion, johansen_cointegration_test, generate_vecm_signals, run_kalman_filter_custom, ols_regression_and_plot
 
 # Configuración de tickers y fechas
@@ -42,7 +42,8 @@ print(len(vecm_signals))
 capital_inicial = 1_000_000  # USD
 comision = 0.00125
 
-backtest_result, trades = backtest_estrategia(vecm_signals, data, kalman_results['beta'], capital_inicial, comision=comision)
+#backtest_result, trades = backtest_estrategia(vecm_signals, data, kalman_results['beta'], capital_inicial, comision=comision)
+backtest_result, trades = backtest_estrategia_propuesta(vecm_signals, data, kalman_results['beta'], capital_inicial, comision=comision)
 
 # Visualizar resultado del backtest
 trades = trades.dropna()
