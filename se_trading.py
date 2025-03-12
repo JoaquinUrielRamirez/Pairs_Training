@@ -48,119 +48,131 @@ def graficar_estrategia_y_ect(norm, vecm_signals):
 def backtest_estrategia(data, signals, hedge_ratios, capital_inicial=1_000_000, comision=0.00125):
     """
     Backtest de estrategia utilizando:
-    - Señales generadas con VECM.
-    - Hedge Ratio dinámico obtenido con el filtro de Kalman.
-    - Cierre de posiciones cuando el spread regresa a la media.
-    - Cálculo del valor del portafolio con múltiples posiciones abiertas.
-    - Corrección para evitar caída abrupta del portafolio al abrir posiciones.
-    - Corrección del manejo de posiciones SHORT para reflejar correctamente el PnL.
-    - Uso del mismo Hedge Ratio en la apertura y el cierre de posiciones.
-    - Registro de todos los trades efectuados.
+    - Manejo de múltiples posiciones abiertas simultáneamente.
+    - Cada posición mantiene su Hedge Ratio hasta su cierre.
+    - Cierre de TODAS las posiciones cuando el spread regresa a la media.
+    - Evaluación correcta del PnL en función de cada entrada.
+    - Registro detallado de cada trade con su fecha de entrada y salida.
+    - Corrección en la eliminación del valor de mercado al cerrar posiciones para evitar caídas abruptas.
+    - Uso del mismo número de unidades al cerrar la posición (sin recalcular Hedge Ratio).
+    - Cálculo del valor del portafolio en cada iteración sin acumulaciones previas.
     """
 
     capital = capital_inicial
-    active_positions = []  # Lista de posiciones largas abiertas
-    active_short_positions = []  # Lista de posiciones cortas abiertas
-    portfolio_value = []  # Almacena el valor del portafolio en cada iteración
-    trades_log = []  # Registro de trades ejecutados
+    active_positions = []  # Lista de posiciones LONG abiertas
+    active_short_positions = []  # Lista de posiciones SHORT abiertas
+    portfolio_value = []  # Registro del valor del portafolio
+    trades_log = []  # Registro de operaciones
 
     for i, row in data.iterrows():
         signal = signals.loc[row.name, 'signal'] if row.name in signals.index else 0
         hedge_ratio = hedge_ratios.loc[row.name] if row.name in hedge_ratios.index else 1
 
-        # 🔹 Cerrar posiciones cuando el spread regresa a la media
-        if abs(signals.loc[row.name, 'ECT'] - signals['ECT'].mean()) < 0.01:
-            for position in active_positions:
-                pnl = (row['CVX'] - position['bought_at']) * position['shares'] - (
-                            position['shares'] * row['CVX'] * comision)
-                capital += pnl + (position['shares'] * row['CVX']) * (
-                            1 - comision)  # Ajuste para reflejar correctamente PnL
-                trades_log.append({
-                    'Fecha Entrada': position['date'],
+        # 🔹 Cerrar TODAS las posiciones si el spread regresa a la media
+        if abs(signals.loc[row.name, 'ECT'] - signals['ECT'].mean()) < 0.01 and (
+                active_positions or active_short_positions):
+            total_pnl_long = sum(
+                (row['CVX'] - pos['bought_at']) * pos['shares'] - (pos['shares'] * row['CVX'] * comision)
+                for pos in active_positions
+            )
+            total_pnl_short = sum(
+                (pos['sell_at'] - row['VLO']) * pos['shares'] - (row['VLO'] * pos['shares'] * comision)
+                for pos in active_short_positions
+            )
+
+            # 🔹 Agregamos el valor de mercado de las posiciones LONG al capital disponible
+            total_market_value_long = sum(pos['shares'] * row['CVX'] for pos in active_positions)
+
+            # 🔹 Actualizamos el capital correctamente
+            capital +=  total_pnl_short + total_market_value_long
+
+            # 🔹 Guardamos el registro de cada trade cerrado
+            trades_log.extend([
+                {
+                    'Fecha Entrada': pos['date'],
                     'Fecha Cierre': row.name,
                     'Tipo': 'Long',
                     'Activo': 'CVX',
-                    'Unidades': position['shares'],
-                    'Precio Entrada': position['bought_at'],
+                    'Unidades': pos['shares'],
+                    'Precio Entrada': pos['bought_at'],
                     'Precio Salida': row['CVX'],
-                    'Hedge Ratio': position['hedge_ratio'],
-                    'PnL': pnl,
+                    'Hedge Ratio': pos['hedge_ratio'],
+                    'PnL': (row['CVX'] - pos['bought_at']) * pos['shares'] - (pos['shares'] * row['CVX'] * comision),
                     'Capital': capital
-                })
-            active_positions = []
+                } for pos in active_positions
+            ])
 
-            for position in active_short_positions:
-                pnl = (position['sell_at'] - row['VLO']) * position['shares'] * position['hedge_ratio'] - (
-                            row['VLO'] * position['shares'] * position['hedge_ratio'] * comision)
-                capital += pnl  # Ajuste para reflejar correctamente PnL
-                trades_log.append({
-                    'Fecha Entrada': position['date'],
+            trades_log.extend([
+                {
+                    'Fecha Entrada': pos['date'],
                     'Fecha Cierre': row.name,
                     'Tipo': 'Short',
                     'Activo': 'VLO',
-                    'Unidades': position['shares'],
-                    'Precio Entrada': position['sell_at'],
+                    'Unidades': pos['shares'],
+                    'Precio Entrada': pos['sell_at'],
                     'Precio Salida': row['VLO'],
-                    'Hedge Ratio': position['hedge_ratio'],
-                    'PnL': pnl,
+                    'Hedge Ratio': pos['hedge_ratio'],
+                    'PnL': (pos['sell_at'] - row['VLO']) * pos['shares'] - (row['VLO'] * pos['shares'] * comision),
                     'Capital': capital
-                })
+                } for pos in active_short_positions
+            ])
+
+            # 🔹 Limpiamos las posiciones activas
+            active_positions = []
             active_short_positions = []
 
-        # 🔹 Apertura de nuevas posiciones en pares (LONG en un activo y SHORT en otro simultáneamente)
-        if signal == 1:  # Señal de LONG en CVX y SHORT en VLO
-            capital_trade = capital * 0.1  # Asignamos el 10% del capital
-            units_cvx = capital_trade / row['CVX']  # Unidades de CVX
-            units_vlo = units_cvx * abs(hedge_ratio)  # Unidades de VLO usando el hedge ratio
+        # 🔹 Apertura de nuevas posiciones descontando el costo de la posición LONG
+        if signal == 1:
+            capital_trade = capital * 0.1
+            units_cvx = capital_trade / row['CVX']
+            units_vlo = units_cvx * abs(hedge_ratio)
+            fixed_hedge_ratio = hedge_ratio
 
-            operation_cost = (units_cvx * row['CVX'] + units_vlo * row['VLO']) * (1 + comision)
+            operation_cost = (units_cvx * row['CVX']) * (1 + comision)
             if (capital > operation_cost) and (capital > 250_000):
-                capital -= (units_cvx * row['CVX']) * (1 + comision)  # Ajuste para evitar impacto negativo del short
-
+                capital -= operation_cost
                 active_positions.append({
                     'date': row.name,
                     'bought_at': row['CVX'],
                     'shares': units_cvx,
-                    'hedge_ratio': hedge_ratio  # Guardamos el hedge ratio en la apertura
+                    'hedge_ratio': fixed_hedge_ratio
                 })
                 active_short_positions.append({
                     'date': row.name,
                     'sell_at': row['VLO'],
                     'shares': units_vlo,
-                    'hedge_ratio': hedge_ratio  # Guardamos el hedge ratio en la apertura
+                    'hedge_ratio': fixed_hedge_ratio
                 })
 
-        if signal == -1:  # Señal de SHORT en CVX y LONG en VLO
+        if signal == -1:
             capital_trade = capital * 0.1
             units_cvx = capital_trade / row['CVX']
             units_vlo = units_cvx * abs(hedge_ratio)
+            fixed_hedge_ratio = hedge_ratio
 
-            operation_cost = (units_cvx * row['CVX'] + units_vlo * row['VLO']) * (1 + comision)
+            operation_cost = (units_vlo * row['VLO']) * (1 + comision)
             if (capital > operation_cost) and (capital > 250_000):
-                capital -= (units_vlo * row['VLO']) * (1 + comision)  # Ajuste para evitar impacto negativo del short
-
+                capital -= operation_cost
                 active_short_positions.append({
                     'date': row.name,
                     'sell_at': row['CVX'],
                     'shares': units_cvx,
-                    'hedge_ratio': hedge_ratio  # Guardamos el hedge ratio en la apertura
+                    'hedge_ratio': fixed_hedge_ratio
                 })
                 active_positions.append({
                     'date': row.name,
                     'bought_at': row['VLO'],
                     'shares': units_vlo,
-                    'hedge_ratio': hedge_ratio  # Guardamos el hedge ratio en la apertura
+                    'hedge_ratio': fixed_hedge_ratio
                 })
 
-        # 🔹 Cálculo del Valor del Portafolio considerando correctamente la posición recién abierta
-        long_value = sum(
-            [pos['shares'] * row['CVX'] for pos in active_positions])  # Valor de mercado de todas las posiciones LONG
-        short_pnl = sum([(pos['sell_at'] - row['VLO']) * pos['shares'] * pos['hedge_ratio'] for pos in
-                         active_short_positions])  # P&L de todas las posiciones SHORT
+        # 🔹 Cálculo del Valor del Portafolio basado en la fórmula exacta
+        portfolio_equity = capital + sum(pos['shares'] * row['CVX'] for pos in active_positions) + sum(
+            (pos['sell_at'] - row['VLO']) * pos['shares'] for pos in active_short_positions)
 
         portfolio_value.append({
             'Fecha': row.name,
-            'Equity': capital + long_value + short_pnl  # Incluyendo el valor de todas las posiciones abiertas
+            'Equity': portfolio_equity
         })
 
     trades_df = pd.DataFrame(trades_log)
